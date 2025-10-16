@@ -1,0 +1,596 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>WhatsApp Multi-Session Manager</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      min-height: 100vh;
+      padding: 20px;
+    }
+
+    .container {
+      max-width: 1400px;
+      margin: 0 auto;
+    }
+
+    h1 {
+      color: white;
+      margin-bottom: 10px;
+      font-size: 32px;
+      text-align: center;
+    }
+
+    .subtitle {
+      color: rgba(255, 255, 255, 0.9);
+      margin-bottom: 30px;
+      font-size: 16px;
+      text-align: center;
+    }
+
+    .top-actions {
+      background: white;
+      border-radius: 15px;
+      padding: 20px;
+      margin-bottom: 20px;
+      box-shadow: 0 5px 20px rgba(0, 0, 0, 0.2);
+      display: flex;
+      gap: 15px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+
+    .top-actions input {
+      flex: 1;
+      min-width: 200px;
+      padding: 12px;
+      border: 2px solid #e0e0e0;
+      border-radius: 10px;
+      font-size: 14px;
+    }
+
+    .top-actions input:focus {
+      outline: none;
+      border-color: #667eea;
+    }
+
+    .sessions-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
+      gap: 20px;
+      margin-bottom: 20px;
+    }
+
+    .session-card {
+      background: white;
+      border-radius: 15px;
+      padding: 25px;
+      box-shadow: 0 5px 20px rgba(0, 0, 0, 0.2);
+      transition: transform 0.2s;
+    }
+
+    .session-card:hover {
+      transform: translateY(-5px);
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+    }
+
+    .session-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 15px;
+      padding-bottom: 15px;
+      border-bottom: 2px solid #f0f0f0;
+    }
+
+    .session-id {
+      font-size: 18px;
+      font-weight: 700;
+      color: #333;
+    }
+
+    .session-phone {
+      font-size: 12px;
+      color: #666;
+      margin-top: 3px;
+    }
+
+    .delete-btn {
+      background: #ff4757;
+      color: white;
+      border: none;
+      border-radius: 8px;
+      padding: 6px 12px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.3s;
+    }
+
+    .delete-btn:hover {
+      background: #ee2233;
+      transform: scale(1.05);
+    }
+
+    .status-badge {
+      display: inline-block;
+      padding: 6px 12px;
+      border-radius: 20px;
+      font-size: 12px;
+      font-weight: 600;
+      margin-bottom: 15px;
+    }
+
+    .status-disconnected { background: #fee; color: #c33; }
+    .status-connecting { background: #ffeaa7; color: #d63031; }
+    .status-qr_ready { background: #74b9ff; color: #0984e3; }
+    .status-connected { background: #d5f4e6; color: #00b894; }
+    .status-error { background: #ffeaa7; color: #d63031; }
+
+    .qr-container {
+      min-height: 200px;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      margin-bottom: 15px;
+      background: #f8f8f8;
+      border-radius: 10px;
+      padding: 10px;
+    }
+
+    .qr-container img {
+      max-width: 100%;
+      border-radius: 8px;
+    }
+
+    .session-actions {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    button {
+      flex: 1;
+      min-width: 100px;
+      padding: 10px 16px;
+      border: none;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.3s;
+    }
+
+    .btn-primary {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+    }
+
+    .btn-primary:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+    }
+
+    .btn-secondary {
+      background: #f0f0f0;
+      color: #333;
+    }
+
+    .btn-secondary:hover {
+      background: #e0e0e0;
+    }
+
+    .btn-success {
+      background: #25D366;
+      color: white;
+    }
+
+    .btn-success:hover {
+      background: #128C7E;
+    }
+
+    .btn-danger {
+      background: #ff4757;
+      color: white;
+    }
+
+    .btn-danger:hover {
+      background: #ee2233;
+    }
+
+    .loader {
+      border: 4px solid #f3f3f3;
+      border-top: 4px solid #667eea;
+      border-radius: 50%;
+      width: 40px;
+      height: 40px;
+      animation: spin 1s linear infinite;
+      margin: 0 auto;
+    }
+
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+
+    .api-link {
+      text-align: center;
+      margin-top: 20px;
+      padding: 20px;
+      background: white;
+      border-radius: 15px;
+      box-shadow: 0 5px 20px rgba(0, 0, 0, 0.2);
+    }
+
+    .api-link a {
+      color: #667eea;
+      text-decoration: none;
+      font-weight: 600;
+      font-size: 16px;
+    }
+
+    .api-link a:hover {
+      text-decoration: underline;
+    }
+
+    .success-check {
+      font-size: 60px;
+      color: #00b894;
+    }
+
+    .message {
+      font-size: 12px;
+      color: #666;
+      margin-top: 10px;
+      text-align: center;
+    }
+
+    .reconnect-info {
+      font-size: 11px;
+      color: #999;
+      margin-top: 5px;
+    }
+
+    @media (max-width: 768px) {
+      .sessions-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>📱 WhatsApp Multi-Session Manager</h1>
+    <p class="subtitle">Manage multiple WhatsApp accounts simultaneously</p>
+    
+    <div class="top-actions">
+      <input type="text" id="new-session-id" placeholder="Enter new session ID (e.g., session1, client_abc)">
+      <button class="btn-primary" onclick="createNewSession()">➕ Create New Session</button>
+      <button class="btn-secondary" onclick="refreshAllSessions()">🔄 Refresh All</button>
+    </div>
+
+    <div id="sessions-grid" class="sessions-grid">
+      <!-- Session cards will be dynamically inserted here -->
+    </div>
+
+    <div class="api-link">
+      <p>📚 <a href="/api-docs" target="_blank">View API Documentation (Swagger)</a></p>
+    </div>
+  </div>
+
+  <script>
+    const API_URL = 'http://localhost:3002';
+    let autoRefreshInterval = null;
+
+    // Initialize
+    document.addEventListener('DOMContentLoaded', () => {
+      refreshAllSessions();
+      startAutoRefresh();
+    });
+
+    // Create a new session
+    async function createNewSession() {
+      const sessionId = document.getElementById('new-session-id').value.trim();
+      
+      if (!sessionId) {
+        alert('Please enter a session ID');
+        return;
+      }
+
+      if (sessionId === 'default') {
+        alert('Session "default" already exists');
+        return;
+      }
+
+      try {
+        const response = await fetch(`${API_URL}/connect`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ session_id: sessionId })
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+          document.getElementById('new-session-id').value = '';
+          setTimeout(refreshAllSessions, 1000);
+        } else {
+          alert('Failed to create session: ' + data.message);
+        }
+      } catch (error) {
+        alert('Error creating session: ' + error.message);
+      }
+    }
+
+    // Refresh all sessions
+    async function refreshAllSessions() {
+      try {
+        const response = await fetch(`${API_URL}/sessions`);
+        const data = await response.json();
+        
+        if (data.success) {
+          renderSessions(data.sessions);
+        }
+      } catch (error) {
+        console.error('Failed to refresh sessions:', error);
+      }
+    }
+
+    // Render sessions in the grid
+    function renderSessions(sessions) {
+      const grid = document.getElementById('sessions-grid');
+      
+      if (sessions.length === 0) {
+        grid.innerHTML = `
+          <div style="grid-column: 1/-1; text-align: center; padding: 40px; background: white; border-radius: 15px;">
+            <p style="font-size: 18px; color: #666;">No sessions yet. Create your first session above!</p>
+          </div>
+        `;
+        return;
+      }
+
+      grid.innerHTML = sessions.map(session => createSessionCard(session)).join('');
+
+      // Auto-fetch QR for sessions that are in QR Ready state
+      sessions
+        .filter(session => session.state === 'qr_ready')
+        .forEach(session => {
+          // Avoid double fetch if an image is already present
+          const container = document.getElementById(`qr-${session.session_id}`);
+          const hasImage = container && container.querySelector('img');
+          if (!hasImage) {
+            getQR(session.session_id);
+          }
+        });
+    }
+
+    // Create a session card HTML
+    function createSessionCard(session) {
+      const canDelete = session.session_id !== 'default';
+      const deleteButton = canDelete 
+        ? `<button class="delete-btn" onclick="deleteSession('${session.session_id}')">🗑️ Delete</button>`
+        : '';
+
+      const phoneDisplay = session.phone_number 
+        ? `<div class="session-phone">📞 ${session.phone_number}</div>`
+        : '';
+
+      const reconnectInfo = session.reconnect_attempts > 0
+        ? `<div class="reconnect-info">Reconnect attempts: ${session.reconnect_attempts}/5</div>`
+        : '';
+
+      return `
+        <div class="session-card" id="session-${session.session_id}">
+          <div class="session-header">
+            <div>
+              <div class="session-id">${session.session_id}</div>
+              ${phoneDisplay}
+            </div>
+            ${deleteButton}
+          </div>
+          
+          <div class="status-badge status-${session.state}">
+            ${getStatusEmoji(session.state)} ${getStatusText(session.state)}
+          </div>
+          ${reconnectInfo}
+          
+          <div class="qr-container" id="qr-${session.session_id}">
+            ${session.state === 'qr_ready' ? '<div class="loader"></div>' : getPlaceholderContent(session.state)}
+          </div>
+          
+          <div class="message" id="msg-${session.session_id}"></div>
+          
+          <div class="session-actions">
+            <button class="btn-primary" onclick="connectSession('${session.session_id}')">🔌 Connect</button>
+            <button class="btn-secondary" onclick="getQR('${session.session_id}')">📸 Get QR</button>
+            <button class="btn-secondary" onclick="checkStatus('${session.session_id}')">📊 Status</button>
+            <button class="btn-danger" onclick="disconnectSession('${session.session_id}')">⏹️ Stop</button>
+          </div>
+        </div>
+      `;
+    }
+
+    function getStatusEmoji(state) {
+      const emojis = {
+        disconnected: '🔴',
+        connecting: '🟡',
+        qr_ready: '🔵',
+        connected: '🟢',
+        error: '⚠️'
+      };
+      return emojis[state] || '⚪';
+    }
+
+    function getStatusText(state) {
+      const texts = {
+        disconnected: 'Disconnected',
+        connecting: 'Connecting...',
+        qr_ready: 'QR Ready',
+        connected: 'Connected',
+        error: 'Error'
+      };
+      return texts[state] || state;
+    }
+
+    function getPlaceholderContent(state) {
+      if (state === 'connected') {
+        return '<div class="success-check">✅</div>';
+      }
+      return '<p style="color: #999;">Not connected</p>';
+    }
+
+    // Connect a session
+    async function connectSession(sessionId) {
+      showMessage(sessionId, 'Initiating connection...', 'info');
+      showLoader(sessionId);
+      
+      try {
+        const response = await fetch(`${API_URL}/connect`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ session_id: sessionId })
+        });
+        
+        const data = await response.json();
+        showMessage(sessionId, data.message, 'success');
+        setTimeout(() => getQR(sessionId), 1000);
+      } catch (error) {
+        showMessage(sessionId, 'Failed to connect: ' + error.message, 'error');
+        hideLoader(sessionId);
+      }
+    }
+
+    // Get QR code for a session
+    async function getQR(sessionId) {
+      showMessage(sessionId, 'Fetching QR code...', 'info');
+      showLoader(sessionId);
+      
+      try {
+        const response = await fetch(`${API_URL}/qr?session_id=${sessionId}`);
+        const data = await response.json();
+        
+        if (data.success) {
+          document.getElementById(`qr-${sessionId}`).innerHTML = 
+            `<img src="${data.qr}" alt="QR Code" />`;
+          showMessage(sessionId, 'Scan this QR code with WhatsApp', 'success');
+        } else {
+          hideLoader(sessionId);
+          showMessage(sessionId, data.message, 'warning');
+        }
+      } catch (error) {
+        hideLoader(sessionId);
+        showMessage(sessionId, 'Failed to get QR: ' + error.message, 'error');
+      }
+    }
+
+    // Check status of a session
+    async function checkStatus(sessionId) {
+      try {
+        const response = await fetch(`${API_URL}/status?session_id=${sessionId}`);
+        const data = await response.json();
+        
+        // Refresh the entire view to update status
+        refreshAllSessions();
+        
+        if (data.state === 'connected') {
+          hideLoader(sessionId);
+          document.getElementById(`qr-${sessionId}`).innerHTML = 
+            '<div class="success-check">✅</div>';
+          showMessage(sessionId, 'Connected successfully!', 'success');
+        }
+      } catch (error) {
+        showMessage(sessionId, 'Failed to check status: ' + error.message, 'error');
+      }
+    }
+
+    // Disconnect a session
+    async function disconnectSession(sessionId) {
+      if (!confirm(`Disconnect session "${sessionId}"?`)) return;
+      
+      try {
+        const response = await fetch(`${API_URL}/disconnect`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ session_id: sessionId })
+        });
+        
+        const data = await response.json();
+        showMessage(sessionId, data.message, 'success');
+        setTimeout(refreshAllSessions, 500);
+      } catch (error) {
+        showMessage(sessionId, 'Failed to disconnect: ' + error.message, 'error');
+      }
+    }
+
+    // Delete a session
+    async function deleteSession(sessionId) {
+      if (!confirm(`Delete session "${sessionId}" permanently? This will remove all authentication files.`)) {
+        return;
+      }
+      
+      try {
+        const response = await fetch(`${API_URL}/sessions/${sessionId}`, {
+          method: 'DELETE'
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+          setTimeout(refreshAllSessions, 500);
+        } else {
+          alert('Failed to delete session: ' + data.message);
+        }
+      } catch (error) {
+        alert('Error deleting session: ' + error.message);
+      }
+    }
+
+    // Helper functions
+    function showMessage(sessionId, msg, type) {
+      const messageDiv = document.getElementById(`msg-${sessionId}`);
+      if (messageDiv) {
+        messageDiv.textContent = msg;
+        messageDiv.style.color = type === 'error' ? '#c33' : type === 'success' ? '#00b894' : '#666';
+      }
+    }
+
+    function showLoader(sessionId) {
+      const container = document.getElementById(`qr-${sessionId}`);
+      if (container) {
+        container.innerHTML = '<div class="loader"></div>';
+      }
+    }
+
+    function hideLoader(sessionId) {
+      const container = document.getElementById(`qr-${sessionId}`);
+      if (container && container.querySelector('.loader')) {
+        container.innerHTML = '<p style="color: #999;">Ready</p>';
+      }
+    }
+
+    // Auto-refresh every 5 seconds
+    function startAutoRefresh() {
+      if (autoRefreshInterval) {
+        clearInterval(autoRefreshInterval);
+      }
+      autoRefreshInterval = setInterval(refreshAllSessions, 5000);
+    }
+
+    // Allow creating session with Enter key
+    document.getElementById('new-session-id').addEventListener('keypress', (e) => {
+      if (e.key === 'Enter') {
+        createNewSession();
+      }
+    });
+  </script>
+</body>
+</html>
