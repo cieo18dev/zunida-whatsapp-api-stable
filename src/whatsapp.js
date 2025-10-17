@@ -352,12 +352,36 @@ export function getAllSessions() {
 }
 
 /**
- * Check if session folder exists on disk
+ * Check if session folder exists on disk AND is properly authenticated
  */
 export function sessionExistsOnDisk(sessionId) {
   const sessionPath = getSessionPath(sessionId);
   const credsPath = path.join(sessionPath, 'creds.json');
-  return fs.existsSync(credsPath);
+  
+  // Check if creds.json exists
+  if (!fs.existsSync(credsPath)) {
+    return false;
+  }
+  
+  try {
+    // Read creds.json to verify it's a real authenticated session
+    const credsContent = fs.readFileSync(credsPath, 'utf-8');
+    const creds = JSON.parse(credsContent);
+    
+    // A properly authenticated session must have these fields
+    // If it only has basic fields, it means QR was never scanned
+    const hasRequiredFields = creds.me && creds.me.id;
+    
+    if (!hasRequiredFields) {
+      console.log(`⚠️  [${sessionId}] Session folder exists but QR was never scanned (no me.id)`);
+      return false;
+    }
+    
+    return true;
+  } catch (error) {
+    console.error(`❌ [${sessionId}] Error reading creds.json:`, error.message);
+    return false;
+  }
 }
 
 /**
