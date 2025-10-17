@@ -78,18 +78,18 @@ describe('Integration Tests - POST /api/send/:clientId', () => {
     expect(response.body.error).toContain('Invalid phone number');
   });
 
-  it('should return 500 when session is not connected', async () => {
+  it('should return 404 when session does not exist on disk', async () => {
     const response = await request(app)
       .post(`/api/send/${testClientId}`)
       .send({
         to: '+573001234567',
         message: 'Test message'
       })
-      .expect(500)
+      .expect(404)
       .expect('Content-Type', /json/);
 
     expect(response.body.error).toBeDefined();
-    expect(response.body.error).toMatch(/not connected|not found/i);
+    expect(response.body.error).toMatch(/not found|scan QR/i);
   });
 
   it('should accept valid phone numbers with + prefix', async () => {
@@ -101,8 +101,8 @@ describe('Integration Tests - POST /api/send/:clientId', () => {
       })
       .expect('Content-Type', /json/);
 
-    // Will fail because not connected, but format is valid
-    expect([200, 500]).toContain(response.status);
+    // Will fail because session doesn't exist (404), but format is valid
+    expect([200, 404, 500]).toContain(response.status);
   });
 
   it('should accept valid phone numbers without + prefix', async () => {
@@ -114,8 +114,8 @@ describe('Integration Tests - POST /api/send/:clientId', () => {
       })
       .expect('Content-Type', /json/);
 
-    // Will fail because not connected, but format is valid
-    expect([200, 500]).toContain(response.status);
+    // Will fail because session doesn't exist (404), but format is valid
+    expect([200, 404, 500]).toContain(response.status);
   });
 });
 

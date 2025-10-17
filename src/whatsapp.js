@@ -10,6 +10,7 @@ import path from 'path';
 
 // Multi-session management
 const sessions = new Map();
+const disconnectTimers = new Map(); // Timers for auto-disconnect
 const MAX_RECONNECT_ATTEMPTS = 5;
 const RECONNECT_DELAY_MS = 3000;
 const MAX_RECONNECT_DELAY_MS = 30000;
@@ -295,6 +296,10 @@ export function getSocket(sessionId = 'default') {
  */
 export async function disconnectWhatsApp(sessionId = 'default') {
   console.log(`🔌 [${sessionId}] Disconnecting WhatsApp...`);
+  
+  // Cancel any scheduled disconnect
+  cancelDisconnectTimer(sessionId);
+  
   const session = sessions.get(sessionId);
   
   if (session) {
@@ -353,6 +358,75 @@ export function sessionExistsOnDisk(sessionId) {
   const sessionPath = getSessionPath(sessionId);
   const credsPath = path.join(sessionPath, 'creds.json');
   return fs.existsSync(credsPath);
+}
+
+/**
+ * Cancel scheduled disconnect for a session
+ */
+function cancelDisconnectTimer(sessionId) {
+  if (disconnectTimers.has(sessionId)) {
+    clearTimeout(disconnectTimers.get(sessionId));
+    disconnectTimers.delete(sessionId);
+    console.log(`⏱️  [${sessionId}] Disconnect timer cancelled`);
+  }
+}
+
+/**
+ * Schedule automatic disconnect after inactivity
+ * @param {string} sessionId - Session identifier
+ * @param {number} minutes - Minutes of inactivity before disconnect
+ */
+export function scheduleDisconnect(sessionId, minutes = 2) {
+  // Cancel existing timer
+  cancelDisconnectTimer(sessionId);
+  
+  const delayMs = minutes * 60 * 1000;
+  
+  const timer = setTimeout(async () => {
+    console.log(`⏰ [${sessionId}] Inactivity timeout (${minutes} min), disconnecting...`);
+    await disconnectWhatsApp(sessionId);
+    disconnectTimers.delete(sessionId);
+  }, delayMs);
+  
+  disconnectTimers.set(sessionId, timer);
+  console.log(`⏱️  [${sessionId}] Scheduled disconnect in ${minutes} minute(s)`);
+}
+
+/**
+ * Mark session activity and reset disconnect timer
+ * @param {string} sessionId - Session identifier
+ * @param {number} minutes - Minutes before auto-disconnect
+ */
+export function markSessionActivity(sessionId, minutes = 2) {
+  console.log(`📌 [${sessionId}] Activity detected, resetting timer`);
+  scheduleDisconnect(sessionId, minutes);
+}
+
+/**
+ * Wait for session to connect
+ * @param {string} sessionId - Session identifier
+ * @param {number} timeoutMs - Maximum time to wait in milliseconds
+ * @returns {Promise<boolean>} - True if connected, false if timeout
+ */
+export async function waitForConnection(sessionId, timeoutMs = 15000) {
+  const startTime = Date.now();
+  
+  while (Date.now() - startTime < timeoutMs) {
+    const state = getConnectionState(sessionId);
+    
+    if (state === 'connected') {
+      return true;
+    }
+    
+    if (state === 'failed' || state === 'error') {
+      throw new Error(`Connection failed for session ${sessionId}`);
+    }
+    
+    // Check every 500ms
+    await new Promise(resolve => setTimeout(resolve, 500));
+  }
+  
+  throw new Error(`Connection timeout for session ${sessionId} after ${timeoutMs}ms`);
 }
 
 /**

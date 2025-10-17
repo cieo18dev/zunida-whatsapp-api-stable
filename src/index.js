@@ -4,7 +4,6 @@ import { specs } from './swagger.js';
 import routes from './routes.js';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
-import { restoreAllSessions } from './whatsapp.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -53,11 +52,8 @@ app.listen(PORT, async () => {
   console.log(`📊 GET /api/status/:clientId - Check connection status`);
   console.log('');
   
-  // Auto-restore existing sessions
-  try {
-    await restoreAllSessions();
-  } catch (error) {
-    console.error('❌ [STARTUP] Failed to restore sessions:', error.message);
-  }
+  // Lazy Loading enabled - sessions will connect on-demand
+  console.log('🔄 [LAZY LOADING] Sessions will connect automatically when needed');
+  console.log('📱 Benefit: Phone receives notifications when sessions are inactive');
 });
 

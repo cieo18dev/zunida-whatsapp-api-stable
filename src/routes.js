@@ -10,7 +10,10 @@ import {
   getSocket,
   deleteSession,
   getAllSessions,
-  sessionExistsOnDisk
+  sessionExistsOnDisk,
+  waitForConnection,
+  markSessionActivity,
+  scheduleDisconnect
 } from './whatsapp.js';
 
 const router = express.Router();
@@ -240,7 +243,35 @@ router.post('/send/:clientId', async (req, res) => {
   }
 
   try {
+    // Check if session exists on disk
+    if (!sessionExistsOnDisk(clientId)) {
+      res.status(404).json({ 
+        error: `Session ${clientId} not found. Please scan QR code first.` 
+      });
+      return;
+    }
+
+    const state = getConnectionState(clientId);
+    
+    // If not connected, connect on-demand
+    if (state !== 'connected') {
+      console.log(`🔄 [${clientId}] Not connected, connecting on-demand for message...`);
+      
+      // Start connection
+      connectWhatsApp(clientId).catch(err => {
+        console.error(`❌ [${clientId}] Connection failed:`, err.message);
+      });
+      
+      // Wait for connection (max 15 seconds)
+      await waitForConnection(clientId, 15000);
+    }
+    
+    // Mark activity and schedule disconnect
+    markSessionActivity(clientId, 2); // Disconnect after 2 minutes of inactivity
+    
+    // Send message
     await sendMessage(clientId, to, message);
+    
     res.json({ success: true });
   } catch (err) {
     console.error(err);
@@ -343,7 +374,35 @@ router.post('/send-document/:clientId', async (req, res) => {
   }
 
   try {
+    // Check if session exists on disk
+    if (!sessionExistsOnDisk(clientId)) {
+      res.status(404).json({ 
+        error: `Session ${clientId} not found. Please scan QR code first.` 
+      });
+      return;
+    }
+
+    const state = getConnectionState(clientId);
+    
+    // If not connected, connect on-demand
+    if (state !== 'connected') {
+      console.log(`🔄 [${clientId}] Not connected, connecting on-demand for document...`);
+      
+      // Start connection
+      connectWhatsApp(clientId).catch(err => {
+        console.error(`❌ [${clientId}] Connection failed:`, err.message);
+      });
+      
+      // Wait for connection (max 15 seconds)
+      await waitForConnection(clientId, 15000);
+    }
+    
+    // Mark activity and schedule disconnect
+    markSessionActivity(clientId, 2); // Disconnect after 2 minutes of inactivity
+    
+    // Send document
     await sendMessageWithDocument(clientId, to, message || '', documentData, filename);
+    
     res.json({ success: true });
   } catch (err) {
     console.error(err);
@@ -576,6 +635,105 @@ router.get('/sessions', (req, res) => {
       error: 'Failed to retrieve sessions', 
       details: err.message 
     });
+  }
+});
+
+/**
+ * @swagger
+ * /api/keep-alive/{clientId}:
+ *   post:
+ *     tags: [WhatsApp]
+ *     summary: Keep session alive
+ *     description: Maintains the session active while admin is using the dashboard. Call this endpoint every 30-60 seconds from frontend to keep the connection alive and prevent auto-disconnect.
+ *     parameters:
+ *       - in: path
+ *         name: clientId
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Unique identifier for the client/session
+ *         example: "13"
+ *     responses:
+ *       200:
+ *         description: Session kept alive successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 clientId:
+ *                   type: string
+ *                   example: "13"
+ *                 state:
+ *                   type: string
+ *                   example: "connected"
+ *                 message:
+ *                   type: string
+ *                   example: "Session is active and will disconnect after 5 minutes of inactivity"
+ *       404:
+ *         description: Session not found
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 error:
+ *                   type: string
+ *                   example: "Session not found. Please scan QR code first."
+ *       500:
+ *         description: Failed to maintain session
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 error:
+ *                   type: string
+ *                   example: "Failed to keep session alive"
+ */
+router.post('/keep-alive/:clientId', async (req, res) => {
+  const { clientId } = req.params;
+
+  try {
+    // Check if session exists on disk
+    if (!sessionExistsOnDisk(clientId)) {
+      res.status(404).json({ 
+        error: `Session ${clientId} not found. Please scan QR code first.` 
+      });
+      return;
+    }
+
+    const state = getConnectionState(clientId);
+    
+    // If not connected, connect on-demand
+    if (state !== 'connected') {
+      console.log(`🔄 [${clientId}] Keep-alive: connecting session...`);
+      
+      // Start connection
+      connectWhatsApp(clientId).catch(err => {
+        console.error(`❌ [${clientId}] Connection failed:`, err.message);
+      });
+      
+      // Wait for connection (max 15 seconds)
+      await waitForConnection(clientId, 15000);
+    }
+    
+    // Mark activity and schedule disconnect after 5 minutes
+    // (longer timeout for admin sessions)
+    markSessionActivity(clientId, 5);
+    
+    res.json({ 
+      success: true,
+      clientId,
+      state: 'connected',
+      message: 'Session is active and will disconnect after 5 minutes of inactivity'
+    });
+  } catch (err) {
+    console.error(`❌ [${clientId}] Keep-alive failed:`, err.message);
+    res.status(500).json({ error: err.message || 'Failed to keep session alive' });
   }
 });
 
