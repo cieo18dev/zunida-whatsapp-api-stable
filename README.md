@@ -8,10 +8,13 @@ A powerful REST API for WhatsApp using the Baileys library with **multi-session 
 - 🔐 Independent session management - Each account has its own authentication and state
 - 💬 Send text messages from any connected account
 - 🔄 Smart automatic reconnection with exponential backoff per session
+- 🔁 **Auto-restore sessions on startup** - Sessions persist across server restarts
 - 🛡️ Protection against reconnection loops
 - 📊 Real-time connection status monitoring for all sessions
 - 🔌 Manual disconnect and reconnection control
 - 🗑️ Delete sessions and authentication data
+- 🧹 **Auto-cleanup of corrupted sessions** (401 errors)
+- 💪 **Crash-resistant** - Global error handlers prevent server crashes
 - 📚 **Interactive Swagger documentation**
 - 🎨 **Beautiful web interface** for managing sessions
 
@@ -348,7 +351,7 @@ curl -X POST http://localhost:3002/send \
   }'
 ```
 
-## 🔐 Session Storage
+## 🔐 Session Storage & Persistence
 
 Each session's authentication data is stored in separate folders:
 
@@ -365,7 +368,30 @@ sessions/
     └── ...
 ```
 
-Once authenticated, sessions persist across server restarts - no need to scan QR codes again unless you log out or delete the session.
+### 🔁 Auto-Restore on Startup
+
+**NEW:** When the server starts, it automatically:
+1. Scans the `sessions/` directory
+2. Finds all existing sessions with valid credentials
+3. Reconnects them automatically in the background
+4. No need to manually reconnect or scan QR codes again
+
+**Example startup logs:**
+```
+🔄 [STARTUP] Restoring sessions from disk...
+📂 [STARTUP] Found 3 session(s): 13, 136, 153
+🔌 [STARTUP] Restoring session: 13
+✅ [13] WhatsApp connection opened successfully!
+📱 [13] Phone number: 573001234567
+✅ [STARTUP] Session restoration process completed
+```
+
+### 🛡️ Benefits
+
+- ✅ **Server restarts are safe** - All sessions reconnect automatically
+- ✅ **Docker container restarts** - Sessions persist via volumes
+- ✅ **No manual intervention** - Everything reconnects on its own
+- ✅ **Corrupted sessions auto-cleanup** - 401 errors are handled automatically
 
 ## 🛡️ Automatic Reconnection (Per Session)
 

@@ -9,7 +9,8 @@ import {
   disconnectWhatsApp,
   getSocket,
   deleteSession,
-  getAllSessions
+  getAllSessions,
+  sessionExistsOnDisk
 } from './whatsapp.js';
 
 const router = express.Router();
@@ -356,7 +357,7 @@ router.post('/send-document/:clientId', async (req, res) => {
  *   get:
  *     tags: [WhatsApp]
  *     summary: Check connection status
- *     description: Checks if an active session exists for the specified client.
+ *     description: Checks if an active session exists for the specified client. If session exists on disk but is disconnected, it will attempt to reconnect.
  *     parameters:
  *       - in: path
  *         name: clientId
@@ -379,6 +380,15 @@ router.post('/send-document/:clientId', async (req, res) => {
  *                 connected:
  *                   type: boolean
  *                   example: true
+ *                 state:
+ *                   type: string
+ *                   example: "connected"
+ *                 session_exists_on_disk:
+ *                   type: boolean
+ *                   example: true
+ *                 auto_reconnecting:
+ *                   type: boolean
+ *                   example: false
  *       500:
  *         description: Error checking status
  *         content:
@@ -402,7 +412,27 @@ router.get('/status/:clientId', async (req, res) => {
   try {
     const state = getConnectionState(clientId);
     const connected = state === 'connected';
-    res.json({ clientId, connected });
+    const existsOnDisk = sessionExistsOnDisk(clientId);
+    
+    // If session exists on disk but is disconnected, try to auto-reconnect
+    let autoReconnecting = false;
+    if (existsOnDisk && !connected && state === 'disconnected') {
+      console.log(`🔄 [${clientId}] Session exists on disk but disconnected, attempting auto-reconnect...`);
+      autoReconnecting = true;
+      
+      // Trigger reconnection in background
+      connectWhatsApp(clientId).catch(err => {
+        console.error(`❌ [${clientId}] Auto-reconnect failed:`, err.message);
+      });
+    }
+    
+    res.json({ 
+      clientId, 
+      connected,
+      state,
+      session_exists_on_disk: existsOnDisk,
+      auto_reconnecting: autoReconnecting
+    });
   } catch (err) {
     res.status(500).json({ clientId, connected: false, error: err.message });
   }

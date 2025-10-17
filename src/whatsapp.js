@@ -131,70 +131,100 @@ export async function connectWhatsApp(sessionId = 'default') {
       getMessage: async () => undefined
     });
 
-    // Handle connection updates
+    // Handle connection updates - wrapped in try-catch to prevent server crashes
     session.sock.ev.on('connection.update', async (update) => {
-      const { connection, lastDisconnect, qr } = update;
+      try {
+        const { connection, lastDisconnect, qr } = update;
 
-      if (qr) {
-        console.log(`📱 [${sessionId}] QR Code received, converting to base64...`);
-        session.qrCodeData = await QRCode.toDataURL(qr);
-        session.connectionState = 'qr_ready';
-        session.reconnectAttempts = 0; // Reset on QR generation
-      }
+        if (qr) {
+          console.log(`📱 [${sessionId}] QR Code received, converting to base64...`);
+          session.qrCodeData = await QRCode.toDataURL(qr);
+          session.connectionState = 'qr_ready';
+          session.reconnectAttempts = 0; // Reset on QR generation
+        }
 
-      if (connection === 'close') {
-        const statusCode = lastDisconnect?.error?.output?.statusCode;
-        const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
-        
-        console.log(`[${sessionId}] Connection closed. Status code: ${statusCode}, Reconnect: ${shouldReconnect}`);
-        session.connectionState = 'disconnected';
-        session.isReconnecting = false;
-        
-        if (shouldReconnect) {
-          session.reconnectAttempts++;
-          const delay = getReconnectDelay(session.reconnectAttempts);
+        if (connection === 'close') {
+          const statusCode = lastDisconnect?.error?.output?.statusCode;
+          const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
           
-          console.log(`⏱️  [${sessionId}] Attempting reconnection ${session.reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS} in ${delay}ms...`);
+          console.log(`[${sessionId}] Connection closed. Status code: ${statusCode}, Reconnect: ${shouldReconnect}`);
+          session.connectionState = 'disconnected';
+          session.isReconnecting = false;
           
-          setTimeout(() => {
-            connectWhatsApp(sessionId);
-          }, delay);
-        } else {
-          console.log(`🚪 [${sessionId}] Logged out. Please scan QR code again.`);
+          if (shouldReconnect) {
+            session.reconnectAttempts++;
+            const delay = getReconnectDelay(session.reconnectAttempts);
+            
+            console.log(`⏱️  [${sessionId}] Attempting reconnection ${session.reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS} in ${delay}ms...`);
+            
+            setTimeout(() => {
+              connectWhatsApp(sessionId).catch(err => {
+                console.error(`❌ [${sessionId}] Reconnection failed:`, err.message);
+              });
+            }, delay);
+          } else {
+            // Logged out (401) - Clean up corrupted session files
+            console.log(`🚪 [${sessionId}] Logged out (401). Cleaning up session files...`);
+            
+            session.qrCodeData = null;
+            session.reconnectAttempts = 0;
+            cleanupSocket(session);
+            
+            // Delete session files to force fresh QR on next connect
+            const sessionPath = getSessionPath(sessionId);
+            if (fs.existsSync(sessionPath)) {
+              try {
+                fs.rmSync(sessionPath, { recursive: true, force: true });
+                console.log(`🗑️  [${sessionId}] Corrupted session files deleted. Client needs to scan QR again.`);
+              } catch (err) {
+                console.error(`❌ [${sessionId}] Failed to delete session files:`, err.message);
+              }
+            }
+          }
+        } else if (connection === 'open') {
+          console.log(`✅ [${sessionId}] WhatsApp connection opened successfully!`);
+          
+          // Get phone number if available
+          if (session.sock.user) {
+            session.phoneNumber = session.sock.user.id.split(':')[0];
+            console.log(`📱 [${sessionId}] Phone number: ${session.phoneNumber}`);
+          }
+          
           session.qrCodeData = null;
-          session.reconnectAttempts = 0;
-          cleanupSocket(session);
+          session.connectionState = 'connected';
+          session.isReconnecting = false;
+          session.reconnectAttempts = 0; // Reset counter on successful connection
+        } else if (connection === 'connecting') {
+          console.log(`🔄 [${sessionId}] Connecting to WhatsApp...`);
+          session.connectionState = 'connecting';
         }
-      } else if (connection === 'open') {
-        console.log(`✅ [${sessionId}] WhatsApp connection opened successfully!`);
-        
-        // Get phone number if available
-        if (session.sock.user) {
-          session.phoneNumber = session.sock.user.id.split(':')[0];
-          console.log(`📱 [${sessionId}] Phone number: ${session.phoneNumber}`);
-        }
-        
-        session.qrCodeData = null;
-        session.connectionState = 'connected';
-        session.isReconnecting = false;
-        session.reconnectAttempts = 0; // Reset counter on successful connection
-      } else if (connection === 'connecting') {
-        console.log(`🔄 [${sessionId}] Connecting to WhatsApp...`);
-        session.connectionState = 'connecting';
+      } catch (error) {
+        console.error(`❌ [${sessionId}] Error in connection.update handler:`, error.message);
+        console.error('Stack:', error.stack);
       }
     });
 
     // Save credentials whenever they update
-    session.sock.ev.on('creds.update', saveCreds);
+    session.sock.ev.on('creds.update', async () => {
+      try {
+        await saveCreds();
+      } catch (error) {
+        console.error(`❌ [${sessionId}] Error saving credentials:`, error.message);
+      }
+    });
 
     // Handle incoming messages (optional - for logging)
     session.sock.ev.on('messages.upsert', async ({ messages, type }) => {
-      if (type === 'notify') {
-        for (const msg of messages) {
-          if (!msg.key.fromMe && msg.message) {
-            console.log(`📨 [${sessionId}] New message received:`, JSON.stringify(msg, null, 2));
+      try {
+        if (type === 'notify') {
+          for (const msg of messages) {
+            if (!msg.key.fromMe && msg.message) {
+              console.log(`📨 [${sessionId}] New message received:`, JSON.stringify(msg, null, 2));
+            }
           }
         }
+      } catch (error) {
+        console.error(`❌ [${sessionId}] Error handling message:`, error.message);
       }
     });
 
@@ -314,6 +344,68 @@ export function getAllSessions() {
     });
   });
   return sessionList;
+}
+
+/**
+ * Check if session folder exists on disk
+ */
+export function sessionExistsOnDisk(sessionId) {
+  const sessionPath = getSessionPath(sessionId);
+  const credsPath = path.join(sessionPath, 'creds.json');
+  return fs.existsSync(credsPath);
+}
+
+/**
+ * Auto-restore all sessions from disk on startup
+ */
+export async function restoreAllSessions() {
+  console.log('🔄 [STARTUP] Restoring sessions from disk...');
+  
+  const sessionsDir = 'sessions';
+  
+  // Ensure sessions directory exists
+  if (!fs.existsSync(sessionsDir)) {
+    fs.mkdirSync(sessionsDir, { recursive: true });
+    console.log('✅ [STARTUP] Sessions directory created');
+    return;
+  }
+  
+  // Read all session folders
+  const folders = fs.readdirSync(sessionsDir, { withFileTypes: true })
+    .filter(dirent => dirent.isDirectory())
+    .map(dirent => dirent.name);
+  
+  if (folders.length === 0) {
+    console.log('ℹ️  [STARTUP] No existing sessions found');
+    return;
+  }
+  
+  console.log(`📂 [STARTUP] Found ${folders.length} session(s): ${folders.join(', ')}`);
+  
+  // Restore each session
+  for (const sessionId of folders) {
+    const credsPath = path.join(sessionsDir, sessionId, 'creds.json');
+    
+    if (fs.existsSync(credsPath)) {
+      console.log(`🔌 [STARTUP] Restoring session: ${sessionId}`);
+      
+      try {
+        // Connect in background (don't wait)
+        connectWhatsApp(sessionId).catch(err => {
+          console.error(`❌ [STARTUP] Failed to restore session ${sessionId}:`, err.message);
+        });
+        
+        // Small delay between connections to avoid overwhelming the system
+        await new Promise(resolve => setTimeout(resolve, 2000));
+      } catch (error) {
+        console.error(`❌ [STARTUP] Error restoring session ${sessionId}:`, error.message);
+      }
+    } else {
+      console.log(`⚠️  [STARTUP] No credentials found for session ${sessionId}, skipping`);
+    }
+  }
+  
+  console.log('✅ [STARTUP] Session restoration process completed');
 }
 
 /**
