@@ -4,6 +4,8 @@ import { specs } from './swagger.js';
 import routes from './routes.js';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
+import logger from './logger.js';
+import { restoreAllSessions } from './whatsapp.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -18,19 +20,18 @@ app.use(express.static(join(__dirname, '../public')));
 
 // Middleware for logging
 app.use((req, res, next) => {
-  console.log(`${new Date().toISOString()} - ${req.method} ${req.path}`);
+  logger.info(`${req.method} ${req.path}`);
   next();
 });
 
 // Global error handler for uncaught errors
 process.on('uncaughtException', (error) => {
-  console.error('❌ [UNCAUGHT EXCEPTION]:', error.message);
-  console.error('Stack:', error.stack);
+  logger.error('❌ [UNCAUGHT EXCEPTION]:', { message: error.message, stack: error.stack });
   // Don't exit, just log the error
 });
 
 process.on('unhandledRejection', (reason, promise) => {
-  console.error('❌ [UNHANDLED REJECTION] at:', promise, 'reason:', reason);
+  logger.error('❌ [UNHANDLED REJECTION]', { promise, reason });
   // Don't exit, just log the error
 });
 
@@ -44,16 +45,19 @@ app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(specs, {
 app.use('/api', routes);
 
 app.listen(PORT, async () => {
-  console.log(`🚀 WhatsApp API Server running on port ${PORT}`);
-  console.log(`📚 Swagger documentation: http://localhost:${PORT}/api-docs`);
-  console.log(`📱 GET /api/connect/:clientId - Start WhatsApp connection`);
-  console.log(`💬 POST /api/send/:clientId - Send messages`);
-  console.log(`📄 POST /api/send-document/:clientId - Send documents`);
-  console.log(`📊 GET /api/status/:clientId - Check connection status`);
-  console.log('');
+  logger.info(`🚀 WhatsApp API Server running on port ${PORT}`);
+  logger.info(`📚 Swagger documentation: http://localhost:${PORT}/api-docs`);
+  logger.info(`📱 GET /api/connect/:clientId - Start WhatsApp connection`);
+  logger.info(`💬 POST /api/send/:clientId - Send messages`);
+  logger.info(`📄 POST /api/send-document/:clientId - Send documents`);
+  logger.info(`📊 GET /api/status/:clientId - Check connection status`);
+  logger.info('');
   
   // Lazy Loading enabled - sessions will connect on-demand
-  console.log('🔄 [LAZY LOADING] Sessions will connect automatically when needed');
-  console.log('📱 Benefit: Phone receives notifications when sessions are inactive');
+  logger.info('🔄 [LAZY LOADING] Sessions will connect automatically when needed');
+  logger.info('📱 Benefit: Phone receives notifications when sessions are inactive');
+  
+  // Restore all sessions from disk
+  await restoreAllSessions();
 });
 

@@ -15,6 +15,7 @@ import {
   markSessionActivity,
   scheduleDisconnect
 } from './whatsapp.js';
+import logger from './logger.js';
 
 const router = express.Router();
 
@@ -116,13 +117,13 @@ router.get('/connect/:clientId', async (req, res) => {
     }
 
     // No session exists, need to create new connection and generate QR
-    console.log(`[🔄] No session found for client ${clientId}, initiating new connection...`);
+    logger.info(`[🔄] No session found for client ${clientId}, initiating new connection...`);
     
     let qrSent = false;
     
     // Start connection
     connectWhatsApp(clientId).catch(err => {
-      console.error(`[❌] Error during connection for ${clientId}:`, err);
+      logger.error(`[❌] Error during connection for ${clientId}:`, err);
     });
 
     // Wait for QR code generation with polling
@@ -137,7 +138,7 @@ router.get('/connect/:clientId', async (req, res) => {
       if (qr && !qrSent && !res.headersSent) {
         clearInterval(checkQR);
         qrSent = true;
-        console.log(`[📱] QR code generated for client ${clientId}`);
+        logger.info(`[📱] QR code generated for client ${clientId}`);
         res.json({ connected: false, qr: qr });
       } else if (currentState === 'connected' && !res.headersSent) {
         clearInterval(checkQR);
@@ -147,7 +148,7 @@ router.get('/connect/:clientId', async (req, res) => {
         });
       } else if (Date.now() - startTime > timeout && !res.headersSent) {
         clearInterval(checkQR);
-        console.warn(`[⏰] QR generation timeout for client ${clientId}`);
+        logger.warn(`[⏰] QR generation timeout for client ${clientId}`);
         res.status(408).json({ 
           error: 'QR generation timeout. Please try again.',
           connected: false 
@@ -156,7 +157,7 @@ router.get('/connect/:clientId', async (req, res) => {
     }, pollInterval);
 
   } catch (err) {
-    console.error(`[❌] Error in connect endpoint for client ${clientId}:`, err);
+    logger.error(`[❌] Error in connect endpoint for client ${clientId}:`, err);
     if (!res.headersSent) {
       res.status(500).json({ error: '❌ Failed to connect' });
     }
@@ -255,11 +256,11 @@ router.post('/send/:clientId', async (req, res) => {
     
     // If not connected, connect on-demand
     if (state !== 'connected') {
-      console.log(`🔄 [${clientId}] Not connected, connecting on-demand for message...`);
+      logger.info(`🔄 [${clientId}] Not connected, connecting on-demand for message...`);
       
       // Start connection
       connectWhatsApp(clientId).catch(err => {
-        console.error(`❌ [${clientId}] Connection failed:`, err.message);
+        logger.error(`❌ [${clientId}] Connection failed:`, err.message);
       });
       
       // Wait for connection (max 15 seconds)
@@ -274,7 +275,7 @@ router.post('/send/:clientId', async (req, res) => {
     
     res.json({ success: true });
   } catch (err) {
-    console.error(err);
+    logger.error(err);
     res.status(500).json({ error: err.message || 'Internal error' });
   }
 });
@@ -386,11 +387,11 @@ router.post('/send-document/:clientId', async (req, res) => {
     
     // If not connected, connect on-demand
     if (state !== 'connected') {
-      console.log(`🔄 [${clientId}] Not connected, connecting on-demand for document...`);
+      logger.info(`🔄 [${clientId}] Not connected, connecting on-demand for document...`);
       
       // Start connection
       connectWhatsApp(clientId).catch(err => {
-        console.error(`❌ [${clientId}] Connection failed:`, err.message);
+        logger.error(`❌ [${clientId}] Connection failed:`, err.message);
       });
       
       // Wait for connection (max 15 seconds)
@@ -405,7 +406,7 @@ router.post('/send-document/:clientId', async (req, res) => {
     
     res.json({ success: true });
   } catch (err) {
-    console.error(err);
+    logger.error(err);
     res.status(500).json({ error: err.message || 'Internal error' });
   }
 });
@@ -476,12 +477,12 @@ router.get('/status/:clientId', async (req, res) => {
     // If session exists on disk but is disconnected, try to auto-reconnect
     let autoReconnecting = false;
     if (existsOnDisk && !connected && state === 'disconnected') {
-      console.log(`🔄 [${clientId}] Session exists on disk but disconnected, attempting auto-reconnect...`);
+      logger.info(`🔄 [${clientId}] Session exists on disk but disconnected, attempting auto-reconnect...`);
       autoReconnecting = true;
       
       // Trigger reconnection in background
       connectWhatsApp(clientId).catch(err => {
-        console.error(`❌ [${clientId}] Auto-reconnect failed:`, err.message);
+        logger.error(`❌ [${clientId}] Auto-reconnect failed:`, err.message);
       });
     }
     
@@ -546,7 +547,7 @@ router.delete('/delete/:clientId', async (req, res) => {
     await deleteSession(clientId);
     res.status(204).send(); // No Content
   } catch (err) {
-    console.error(`[❌] Failed to delete session ${clientId}:`, err);
+    logger.error(`[❌] Failed to delete session ${clientId}:`, err);
     
     if (err.message.includes('Cannot delete')) {
       res.status(400).json({ error: err.message });
@@ -630,7 +631,7 @@ router.get('/sessions', (req, res) => {
     const sessions = getAllSessions();
     res.json({ sessions });
   } catch (err) {
-    console.error('[❌] Failed to retrieve sessions:', err);
+    logger.error('[❌] Failed to retrieve sessions:', err);
     res.status(500).json({ 
       error: 'Failed to retrieve sessions', 
       details: err.message 
@@ -710,11 +711,11 @@ router.post('/keep-alive/:clientId', async (req, res) => {
     
     // If not connected, connect on-demand
     if (state !== 'connected') {
-      console.log(`🔄 [${clientId}] Keep-alive: connecting session...`);
+      logger.info(`🔄 [${clientId}] Keep-alive: connecting session...`);
       
       // Start connection
       connectWhatsApp(clientId).catch(err => {
-        console.error(`❌ [${clientId}] Connection failed:`, err.message);
+        logger.error(`❌ [${clientId}] Connection failed:`, err.message);
       });
       
       // Wait for connection (max 15 seconds)
@@ -732,7 +733,7 @@ router.post('/keep-alive/:clientId', async (req, res) => {
       message: 'Session is active and will disconnect after 5 minutes of inactivity'
     });
   } catch (err) {
-    console.error(`❌ [${clientId}] Keep-alive failed:`, err.message);
+    logger.error(`❌ [${clientId}] Keep-alive failed:`, err.message);
     res.status(500).json({ error: err.message || 'Failed to keep session alive' });
   }
 });

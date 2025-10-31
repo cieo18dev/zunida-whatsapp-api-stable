@@ -18,8 +18,8 @@ COPY . .
 # Expose port
 EXPOSE 3006
 
-# Create directory for sessions (will be mounted as volume)
-RUN mkdir -p /app/sessions
+# Create directories for sessions and logs (will be mounted as volumes)
+RUN mkdir -p /app/sessions /app/logs
 
 # Start the application
 CMD ["pnpm", "start"]

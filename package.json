@@ -22,10 +22,13 @@
   "dependencies": {
     "@whiskeysockets/baileys": "^6.7.9",
     "express": "^4.21.1",
+    "moment-timezone": "^0.6.0",
     "pino": "^9.5.0",
     "qrcode": "^1.5.4",
     "swagger-jsdoc": "^6.2.8",
-    "swagger-ui-express": "^5.0.1"
+    "swagger-ui-express": "^5.0.1",
+    "winston": "^3.18.3",
+    "winston-daily-rotate-file": "^5.0.0"
   },
   "devDependencies": {
     "@jest/globals": "^29.7.0",

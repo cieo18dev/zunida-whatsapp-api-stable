@@ -7,6 +7,7 @@ import QRCode from 'qrcode';
 import pino from 'pino';
 import fs from 'fs';
 import path from 'path';
+import appLogger from './logger.js';
 
 // Multi-session management
 const sessions = new Map();
@@ -70,7 +71,7 @@ function cleanupSocket(session) {
       session.sock.ev.removeAllListeners('messages.upsert');
       session.sock.end(undefined);
     } catch (error) {
-      console.log(`Error during socket cleanup for session ${session.sessionId}:`, error.message);
+      appLogger.error(`Error during socket cleanup for session ${session.sessionId}:`, error.message);
     }
     session.sock = null;
   }
@@ -93,13 +94,13 @@ export async function connectWhatsApp(sessionId = 'default') {
   
   // Prevent multiple simultaneous connection attempts
   if (session.isReconnecting) {
-    console.log(`⏳ [${sessionId}] Connection attempt already in progress, skipping...`);
+    appLogger.info(`⏳ [${sessionId}] Connection attempt already in progress, skipping...`);
     return session.sock;
   }
 
   // Check if max reconnect attempts reached
   if (session.reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
-    console.log(`❌ [${sessionId}] Max reconnection attempts (${MAX_RECONNECT_ATTEMPTS}) reached.`);
+    appLogger.error(`❌ [${sessionId}] Max reconnection attempts (${MAX_RECONNECT_ATTEMPTS}) reached.`);
     session.connectionState = 'failed';
     session.isReconnecting = false;
     return null;
@@ -117,7 +118,7 @@ export async function connectWhatsApp(sessionId = 'default') {
     const { state, saveCreds } = await useMultiFileAuthState(getSessionPath(sessionId));
     const { version, isLatest } = await fetchLatestBaileysVersion();
     
-    console.log(`[${sessionId}] Using WA v${version.join('.')}, isLatest: ${isLatest}`);
+    appLogger.info(`[${sessionId}] Using WA v${version.join('.')}, isLatest: ${isLatest}`);
 
     session.sock = makeWASocket({
       version,
@@ -138,7 +139,7 @@ export async function connectWhatsApp(sessionId = 'default') {
         const { connection, lastDisconnect, qr } = update;
 
         if (qr) {
-          console.log(`📱 [${sessionId}] QR Code received, converting to base64...`);
+          appLogger.info(`📱 [${sessionId}] QR Code received, converting to base64...`);
           session.qrCodeData = await QRCode.toDataURL(qr);
           session.connectionState = 'qr_ready';
           session.reconnectAttempts = 0; // Reset on QR generation
@@ -148,7 +149,7 @@ export async function connectWhatsApp(sessionId = 'default') {
           const statusCode = lastDisconnect?.error?.output?.statusCode;
           const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
           
-          console.log(`[${sessionId}] Connection closed. Status code: ${statusCode}, Reconnect: ${shouldReconnect}`);
+          appLogger.info(`[${sessionId}] Connection closed. Status code: ${statusCode}, Reconnect: ${shouldReconnect}`);
           session.connectionState = 'disconnected';
           session.isReconnecting = false;
           
@@ -156,16 +157,16 @@ export async function connectWhatsApp(sessionId = 'default') {
             session.reconnectAttempts++;
             const delay = getReconnectDelay(session.reconnectAttempts);
             
-            console.log(`⏱️  [${sessionId}] Attempting reconnection ${session.reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS} in ${delay}ms...`);
+            appLogger.info(`⏱️  [${sessionId}] Attempting reconnection ${session.reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS} in ${delay}ms...`);
             
             setTimeout(() => {
               connectWhatsApp(sessionId).catch(err => {
-                console.error(`❌ [${sessionId}] Reconnection failed:`, err.message);
+                appLogger.error(`❌ [${sessionId}] Reconnection failed:`, err.message);
               });
             }, delay);
           } else {
             // Logged out (401) - Clean up corrupted session files
-            console.log(`🚪 [${sessionId}] Logged out (401). Cleaning up session files...`);
+            appLogger.info(`🚪 [${sessionId}] Logged out (401). Cleaning up session files...`);
             
             session.qrCodeData = null;
             session.reconnectAttempts = 0;
@@ -176,19 +177,19 @@ export async function connectWhatsApp(sessionId = 'default') {
             if (fs.existsSync(sessionPath)) {
               try {
                 fs.rmSync(sessionPath, { recursive: true, force: true });
-                console.log(`🗑️  [${sessionId}] Corrupted session files deleted. Client needs to scan QR again.`);
+                appLogger.info(`🗑️  [${sessionId}] Corrupted session files deleted. Client needs to scan QR again.`);
               } catch (err) {
-                console.error(`❌ [${sessionId}] Failed to delete session files:`, err.message);
+                appLogger.error(`❌ [${sessionId}] Failed to delete session files:`, err.message);
               }
             }
           }
         } else if (connection === 'open') {
-          console.log(`✅ [${sessionId}] WhatsApp connection opened successfully!`);
+          appLogger.info(`✅ [${sessionId}] WhatsApp connection opened successfully!`);
           
           // Get phone number if available
           if (session.sock.user) {
             session.phoneNumber = session.sock.user.id.split(':')[0];
-            console.log(`📱 [${sessionId}] Phone number: ${session.phoneNumber}`);
+            appLogger.info(`📱 [${sessionId}] Phone number: ${session.phoneNumber}`);
           }
           
           session.qrCodeData = null;
@@ -196,12 +197,12 @@ export async function connectWhatsApp(sessionId = 'default') {
           session.isReconnecting = false;
           session.reconnectAttempts = 0; // Reset counter on successful connection
         } else if (connection === 'connecting') {
-          console.log(`🔄 [${sessionId}] Connecting to WhatsApp...`);
+          appLogger.info(`🔄 [${sessionId}] Connecting to WhatsApp...`);
           session.connectionState = 'connecting';
         }
       } catch (error) {
-        console.error(`❌ [${sessionId}] Error in connection.update handler:`, error.message);
-        console.error('Stack:', error.stack);
+        appLogger.error(`❌ [${sessionId}] Error in connection.update handler:`, error.message);
+        appLogger.error('Stack:', error.stack);
       }
     });
 
@@ -210,7 +211,7 @@ export async function connectWhatsApp(sessionId = 'default') {
       try {
         await saveCreds();
       } catch (error) {
-        console.error(`❌ [${sessionId}] Error saving credentials:`, error.message);
+        appLogger.error(`❌ [${sessionId}] Error saving credentials:`, error.message);
       }
     });
 
@@ -220,19 +221,19 @@ export async function connectWhatsApp(sessionId = 'default') {
         if (type === 'notify') {
           for (const msg of messages) {
             if (!msg.key.fromMe && msg.message) {
-              console.log(`📨 [${sessionId}] New message received:`, JSON.stringify(msg, null, 2));
+              appLogger.info(`📨 [${sessionId}] New message received:`, JSON.stringify(msg, null, 2));
             }
           }
         }
       } catch (error) {
-        console.error(`❌ [${sessionId}] Error handling message:`, error.message);
+        appLogger.error(`❌ [${sessionId}] Error handling message:`, error.message);
       }
     });
 
     session.isReconnecting = false;
     return session.sock;
   } catch (error) {
-    console.error(`❌ [${sessionId}] Error during WhatsApp connection:`, error.message);
+    appLogger.error(`❌ [${sessionId}] Error during WhatsApp connection:`, error.message);
     session.isReconnecting = false;
     session.connectionState = 'error';
     
@@ -240,7 +241,7 @@ export async function connectWhatsApp(sessionId = 'default') {
     if (session.reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
       session.reconnectAttempts++;
       const delay = getReconnectDelay(session.reconnectAttempts);
-      console.log(`⏱️  [${sessionId}] Retrying connection in ${delay}ms...`);
+      appLogger.info(`⏱️  [${sessionId}] Retrying connection in ${delay}ms...`);
       
       setTimeout(() => {
         connectWhatsApp(sessionId);
@@ -277,7 +278,7 @@ export function resetReconnectAttempts(sessionId = 'default') {
   const session = sessions.get(sessionId);
   if (session) {
     session.reconnectAttempts = 0;
-    console.log(`🔄 [${sessionId}] Reconnection attempts counter reset`);
+    appLogger.info(`🔄 [${sessionId}] Reconnection attempts counter reset`);
   }
 }
 
@@ -295,7 +296,7 @@ export function getSocket(sessionId = 'default') {
  * @param {string} sessionId - Session identifier
  */
 export async function disconnectWhatsApp(sessionId = 'default') {
-  console.log(`🔌 [${sessionId}] Disconnecting WhatsApp...`);
+  appLogger.info(`🔌 [${sessionId}] Disconnecting WhatsApp...`);
   
   // Cancel any scheduled disconnect
   cancelDisconnectTimer(sessionId);
@@ -330,7 +331,7 @@ export async function deleteSession(sessionId) {
   const sessionPath = getSessionPath(sessionId);
   if (fs.existsSync(sessionPath)) {
     fs.rmSync(sessionPath, { recursive: true, force: true });
-    console.log(`🗑️  [${sessionId}] Session files deleted`);
+    appLogger.info(`🗑️  [${sessionId}] Session files deleted`);
   }
 }
 
@@ -373,13 +374,13 @@ export function sessionExistsOnDisk(sessionId) {
     const hasRequiredFields = creds.me && creds.me.id;
     
     if (!hasRequiredFields) {
-      console.log(`⚠️  [${sessionId}] Session folder exists but QR was never scanned (no me.id)`);
+      appLogger.warn(`⚠️  [${sessionId}] Session folder exists but QR was never scanned (no me.id)`);
       return false;
     }
     
     return true;
   } catch (error) {
-    console.error(`❌ [${sessionId}] Error reading creds.json:`, error.message);
+    appLogger.error(`❌ [${sessionId}] Error reading creds.json:`, error.message);
     return false;
   }
 }
@@ -391,7 +392,7 @@ function cancelDisconnectTimer(sessionId) {
   if (disconnectTimers.has(sessionId)) {
     clearTimeout(disconnectTimers.get(sessionId));
     disconnectTimers.delete(sessionId);
-    console.log(`⏱️  [${sessionId}] Disconnect timer cancelled`);
+    appLogger.info(`⏱️  [${sessionId}] Disconnect timer cancelled`);
   }
 }
 
@@ -407,13 +408,13 @@ export function scheduleDisconnect(sessionId, minutes = 2) {
   const delayMs = minutes * 60 * 1000;
   
   const timer = setTimeout(async () => {
-    console.log(`⏰ [${sessionId}] Inactivity timeout (${minutes} min), disconnecting...`);
+    appLogger.info(`⏰ [${sessionId}] Inactivity timeout (${minutes} min), disconnecting...`);
     await disconnectWhatsApp(sessionId);
     disconnectTimers.delete(sessionId);
   }, delayMs);
   
   disconnectTimers.set(sessionId, timer);
-  console.log(`⏱️  [${sessionId}] Scheduled disconnect in ${minutes} minute(s)`);
+  appLogger.info(`⏱️  [${sessionId}] Scheduled disconnect in ${minutes} minute(s)`);
 }
 
 /**
@@ -422,7 +423,7 @@ export function scheduleDisconnect(sessionId, minutes = 2) {
  * @param {number} minutes - Minutes before auto-disconnect
  */
 export function markSessionActivity(sessionId, minutes = 2) {
-  console.log(`📌 [${sessionId}] Activity detected, resetting timer`);
+  appLogger.info(`📌 [${sessionId}] Activity detected, resetting timer`);
   scheduleDisconnect(sessionId, minutes);
 }
 
@@ -457,14 +458,14 @@ export async function waitForConnection(sessionId, timeoutMs = 15000) {
  * Auto-restore all sessions from disk on startup
  */
 export async function restoreAllSessions() {
-  console.log('🔄 [STARTUP] Restoring sessions from disk...');
+  appLogger.info('🔄 [STARTUP] Restoring sessions from disk...');
   
   const sessionsDir = 'sessions';
   
   // Ensure sessions directory exists
   if (!fs.existsSync(sessionsDir)) {
     fs.mkdirSync(sessionsDir, { recursive: true });
-    console.log('✅ [STARTUP] Sessions directory created');
+    appLogger.info('✅ [STARTUP] Sessions directory created');
     return;
   }
   
@@ -474,36 +475,36 @@ export async function restoreAllSessions() {
     .map(dirent => dirent.name);
   
   if (folders.length === 0) {
-    console.log('ℹ️  [STARTUP] No existing sessions found');
+    appLogger.info('ℹ️  [STARTUP] No existing sessions found');
     return;
   }
   
-  console.log(`📂 [STARTUP] Found ${folders.length} session(s): ${folders.join(', ')}`);
+  appLogger.info(`📂 [STARTUP] Found ${folders.length} session(s): ${folders.join(', ')}`);
   
   // Restore each session
   for (const sessionId of folders) {
     const credsPath = path.join(sessionsDir, sessionId, 'creds.json');
     
     if (fs.existsSync(credsPath)) {
-      console.log(`🔌 [STARTUP] Restoring session: ${sessionId}`);
+      appLogger.info(`🔌 [STARTUP] Restoring session: ${sessionId}`);
       
       try {
         // Connect in background (don't wait)
         connectWhatsApp(sessionId).catch(err => {
-          console.error(`❌ [STARTUP] Failed to restore session ${sessionId}:`, err.message);
+          appLogger.error(`❌ [STARTUP] Failed to restore session ${sessionId}:`, err.message);
         });
         
         // Small delay between connections to avoid overwhelming the system
         await new Promise(resolve => setTimeout(resolve, 2000));
       } catch (error) {
-        console.error(`❌ [STARTUP] Error restoring session ${sessionId}:`, error.message);
+        appLogger.error(`❌ [STARTUP] Error restoring session ${sessionId}:`, error.message);
       }
     } else {
-      console.log(`⚠️  [STARTUP] No credentials found for session ${sessionId}, skipping`);
+      appLogger.warn(`⚠️  [STARTUP] No credentials found for session ${sessionId}, skipping`);
     }
   }
   
-  console.log('✅ [STARTUP] Session restoration process completed');
+  appLogger.info('✅ [STARTUP] Session restoration process completed');
 }
 
 /**
@@ -535,10 +536,10 @@ export async function sendMessage(sessionId = 'default', number, message) {
     
     // Send message using the verified JID
     const sentMessage = await session.sock.sendMessage(result[0].jid, { text: message });
-    console.log(`✅ [${sessionId}] Message sent to ${number}:`, message);
+    appLogger.info(`✅ [${sessionId}] Message sent to ${number}:`, message);
     return sentMessage;
   } catch (error) {
-    console.error(`❌ [${sessionId}] Error sending message:`, error.message);
+    appLogger.error(`❌ [${sessionId}] Error sending message:`, error.message);
     
     // If connection error, update state
     if (error.message.includes('Connection Closed') || error.message.includes('Socket Closed')) {
@@ -583,10 +584,10 @@ export async function sendMessageWithDocument(sessionId = 'default', number, mes
       throw new Error('Invalid documentData format. Must be base64 data (data:application/pdf;base64,...)');
     }
 
-    console.log(`[📥] Processing base64 PDF data for ${number}`);
+    appLogger.info(`[📥] Processing base64 PDF data for ${number}`);
     const base64Data = documentData.split(',')[1];
     const pdfBuffer = Buffer.from(base64Data, 'base64');
-    console.log(`[✅] PDF processed from base64, size: ${pdfBuffer.length} bytes`);
+    appLogger.info(`[✅] PDF processed from base64, size: ${pdfBuffer.length} bytes`);
 
     // Send document with buffer
     const documentMessage = {
@@ -597,10 +598,10 @@ export async function sendMessageWithDocument(sessionId = 'default', number, mes
     };
 
     const sentMessage = await session.sock.sendMessage(result[0].jid, documentMessage);
-    console.log(`✅ [${sessionId}] Document sent to ${number}: ${filename}`);
+    appLogger.info(`✅ [${sessionId}] Document sent to ${number}: ${filename}`);
     return sentMessage;
   } catch (error) {
-    console.error(`❌ [${sessionId}] Error sending document:`, error.message);
+    appLogger.error(`❌ [${sessionId}] Error sending document:`, error.message);
     
     // If connection error, update state
     if (error.message.includes('Connection Closed') || error.message.includes('Socket Closed')) {

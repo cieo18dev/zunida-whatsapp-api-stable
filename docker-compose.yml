@@ -12,8 +12,11 @@ services:
     volumes:
       # CRÍTICO: Monta el directorio de sesiones como volumen persistente
       - ./sessions:/app/sessions
-      # Alternativa con named volume:
+      # Logs: Monta como volumen para persistir logs por día
+      - ./logs:/app/logs
+      # Alternativa con named volumes:
       # - whatsapp-sessions:/app/sessions
+      # - whatsapp-logs:/app/logs
     restart: unless-stopped
     networks:
       - zunida-network
